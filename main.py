@@ -4,7 +4,7 @@ from telegram import Update, WebAppInfo, InlineKeyboardButton, InlineKeyboardMar
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
 
 # --- CONFIGURATION ---
-TOKEN = "8521772281:AAFJplbFCHluunPVC17sNgM0Hjg7xsTd3Zw"
+TOKEN = os.getenv("BOT_TOKEN")
 ADMIN_ID = 8699819680
 LOOT_CHANNEL_ID = -1003817774248
 TMA_URL = "https://pawsofjoy.github.io/tma-auditor/"
